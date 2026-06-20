@@ -327,6 +327,7 @@ const CSS = `
   font-family:var(--sans); color:var(--ink); background:var(--paper);
   padding:28px 22px 40px; max-width:1180px; margin:0 auto; line-height:1.45;
   -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1,"ss01" 1;
+  overflow-x:hidden;
 }
 .cpm-root *{box-sizing:border-box;}
 .cpm-root input{font-family:var(--mono);}
@@ -338,6 +339,8 @@ const CSS = `
 .cpm-reset:hover{border-color:var(--teal); color:var(--teal);}
 
 .cpm-grid{display:grid; grid-template-columns:1fr; gap:20px;}
+/* allow grid items to shrink below their content size (prevents mobile overflow) */
+.cpm-panel,.cpm-controls{min-width:0;}
 @media(min-width:920px){
   .cpm-grid{grid-template-columns:minmax(0,1fr) 380px;}
   .cpm-controls{grid-column:1; grid-row:1;}
@@ -436,6 +439,12 @@ const CSS = `
   .cpm-root{padding:20px 14px 32px;}
   .cpm-title{font-size:24px;}
   .cpm-net-val{font-size:32px;}
+  /* let the header wrap instead of pushing the button off-screen */
+  .cpm-head{flex-wrap:wrap; align-items:flex-start;}
+  /* stack the gauge labels as a normal row so long numbers can't overflow */
+  .cpm-gauge-labels{position:static; height:auto; margin-top:10px; display:flex; justify-content:space-between; gap:12px;}
+  .cpm-lab{position:static; transform:none; white-space:normal; text-align:left;}
+  .cpm-lab.rev-lab{text-align:right;}
   .cpm-line{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "rev gp" "mm mm" "x x"; row-gap:6px;}
   .cpm-line-head{display:none;}
   .cpm-line .name{grid-area:name;}
