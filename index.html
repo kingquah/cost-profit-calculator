@@ -45,6 +45,12 @@ const fmt = (n) => {
 };
 const pct = (n) => (isFinite(n) ? (n * 100).toFixed(1) + "%" : "—");
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+// tidy a percentage for the input box: 50.0 -> "50", 44.44 -> "44.4"
+const fmtPct = (n) => {
+  if (!isFinite(n)) return "";
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1);
+};
 
 // effective gross margin (as a fraction of revenue) for a line
 const effMargin = (type, val) => {
@@ -131,6 +137,22 @@ function Calculator() {
 
   // mutators
   const upLine = (id, k, v) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, [k]: v } : l)));
+  // switch markup <-> margin and convert the number so the real profitability is unchanged
+  const setType = (id, newType) =>
+    setLines((ls) =>
+      ls.map((l) => {
+        if (l.id !== id || l.type === newType) return l;
+        if (l.val.trim() === "") return { ...l, type: newType }; // nothing entered yet
+        const v = num(l.val) / 100; // current value as a fraction
+        let conv;
+        if (newType === "margin") {
+          conv = 1 + v !== 0 ? v / (1 + v) : NaN; // markup -> margin
+        } else {
+          conv = 1 - v > 0 ? v / (1 - v) : NaN; // margin -> markup (margin >= 100% can't convert)
+        }
+        return isFinite(conv) ? { ...l, type: newType, val: fmtPct(conv * 100) } : { ...l, type: newType };
+      })
+    );
   const addLine = () => setLines((ls) => [...ls, { id: nextId(), name: "", rev: "", type: "markup", val: "" }]);
   const rmLine = (id) => setLines((ls) => ls.filter((l) => l.id !== id));
   const upEx = (id, k, v) => setExtras((es) => es.map((e) => (e.id === id ? { ...e, [k]: v } : e)));
@@ -267,9 +289,9 @@ function Calculator() {
                   <span className="cpm-mm">
                     <span className="cpm-toggle" role="group" aria-label="markup or margin">
                       <button className={l.type === "markup" ? "on" : ""}
-                        onClick={() => upLine(l.id, "type", "markup")}>Markup</button>
+                        onClick={() => setType(l.id, "markup")}>Markup</button>
                       <button className={l.type === "margin" ? "on" : ""}
-                        onClick={() => upLine(l.id, "type", "margin")}>Margin</button>
+                        onClick={() => setType(l.id, "margin")}>Margin</button>
                     </span>
                     <span className="cpm-field pctfield">
                       <input className="cpm-in pct" inputMode="decimal" placeholder="0" value={l.val}
