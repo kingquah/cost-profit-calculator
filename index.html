@@ -30,7 +30,7 @@
   <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
 
   <script type="text/babel" data-presets="react">
-const { useState, useMemo, useRef } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 
 // ---- helpers ---------------------------------------------------------------
 const num = (s) => {
@@ -68,14 +68,36 @@ const SEED_EXTRAS = [
 
 let _id = 0;
 const withIds = (arr) => arr.map((x) => ({ id: ++_id, ...x }));
+const stripIds = (arr) => arr.map(({ id, ...rest }) => rest);
+
+// ---- per-device persistence (localStorage) --------------------------------
+const LS_KEY = "cpm.v1";
+const loadSaved = () => {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && typeof d === "object" ? d : null;
+  } catch {
+    return null; // private mode / storage disabled — fall back to the example
+  }
+};
 
 function Calculator() {
-  const [fixed, setFixed] = useState("96000");
-  const [lines, setLines] = useState(() => withIds(SEED_LINES));
-  const [extras, setExtras] = useState(() => withIds(SEED_EXTRAS));
-  const [target, setTarget] = useState("");
+  const saved = useMemo(loadSaved, []);
+  const [fixed, setFixed] = useState(() => (saved?.fixed != null ? saved.fixed : "96000"));
+  const [lines, setLines] = useState(() => withIds(Array.isArray(saved?.lines) ? stripIds(saved.lines) : SEED_LINES));
+  const [extras, setExtras] = useState(() => withIds(Array.isArray(saved?.extras) ? stripIds(saved.extras) : SEED_EXTRAS));
+  const [target, setTarget] = useState(() => (saved?.target != null ? saved.target : ""));
   const idRef = useRef(_id);
   const nextId = () => ++idRef.current;
+
+  // auto-save on every change; stays private to this browser
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ fixed, lines: stripIds(lines), extras: stripIds(extras), target }));
+    } catch {}
+  }, [fixed, lines, extras, target]);
 
   const c = useMemo(() => {
     let totalRev = 0;
