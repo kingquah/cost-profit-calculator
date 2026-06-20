@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e3b2c" />
+  <title>Cost, Profit & Margin Calculator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #f0ece3; }
+    /* keep the app readable while React boots */
+    #root:empty::before {
+      content: "Loading…";
+      display: block;
+      padding: 48px 22px;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #5b6b62;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React (production UMD builds) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel transpiles the JSX below in the browser -->
+  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useMemo, useRef } = React;
+
+// ---- helpers ---------------------------------------------------------------
+const num = (s) => {
+  const v = parseFloat(String(s).replace(/[^0-9.\-]/g, ""));
+  return isNaN(v) ? 0 : v;
+};
+const fmt = (n) => {
+  if (!isFinite(n)) return "—";
+  const neg = n < 0;
+  const s = Math.round(Math.abs(n)).toLocaleString("en-MY");
+  return (neg ? "−RM " : "RM ") + s;
+};
+const pct = (n) => (isFinite(n) ? (n * 100).toFixed(1) + "%" : "—");
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+// effective gross margin (as a fraction of revenue) for a line
+const effMargin = (type, val) => {
+  const v = num(val) / 100;
+  if (type === "margin") return v;
+  return v / (1 + v); // markup -> margin
+};
+
+const SEED_LINES = [
+  { name: "Custom apparel (tees, hoodies)", rev: "95000", type: "markup", val: "80" },
+  { name: "Drinkware & bottles", rev: "40000", type: "markup", val: "120" },
+  { name: "Corporate gift sets", rev: "45000", type: "markup", val: "150" },
+  { name: "Design & branding service", rev: "20000", type: "margin", val: "85" },
+  { name: "Event setup & fulfilment", rev: "30000", type: "markup", val: "35" },
+];
+const SEED_EXTRAS = [
+  { name: "Temp staff (event)", amt: "4000" },
+  { name: "Marketing push / ads", amt: "3000" },
+  { name: "Event setup", amt: "2500" },
+];
+
+let _id = 0;
+const withIds = (arr) => arr.map((x) => ({ id: ++_id, ...x }));
+
+function Calculator() {
+  const [fixed, setFixed] = useState("96000");
+  const [lines, setLines] = useState(() => withIds(SEED_LINES));
+  const [extras, setExtras] = useState(() => withIds(SEED_EXTRAS));
+  const [target, setTarget] = useState("");
+  const idRef = useRef(_id);
+  const nextId = () => ++idRef.current;
+
+  const c = useMemo(() => {
+    let totalRev = 0;
+    let totalGP = 0;
+    const perLine = lines.map((l) => {
+      const r = num(l.rev);
+      const m = effMargin(l.type, l.val);
+      const gp = r * m;
+      totalRev += r;
+      totalGP += gp;
+      return { gp, m };
+    });
+    const fixedC = num(fixed);
+    const varC = extras.reduce((s, e) => s + num(e.amt), 0);
+    const totalCost = fixedC + varC;
+    const blended = totalRev > 0 ? totalGP / totalRev : 0;
+    const net = totalGP - totalCost;
+    const bep = blended > 0 ? totalCost / blended : Infinity;
+    const safetyRM = totalRev - bep;
+    const safetyPct = totalRev > 0 && isFinite(bep) ? safetyRM / totalRev : NaN;
+    const tgt = num(target);
+    const reqRev = blended > 0 ? (totalCost + tgt) / blended : Infinity;
+    return { perLine, totalRev, totalGP, fixedC, varC, totalCost, blended, net, bep, safetyRM, safetyPct, reqRev };
+  }, [fixed, lines, extras, target]);
+
+  // gauge geometry
+  const maxScale = Math.max(c.totalRev, isFinite(c.bep) ? c.bep : 0, 1) * 1.12;
+  const posRev = clamp((c.totalRev / maxScale) * 100, 0, 100);
+  const posBep = isFinite(c.bep) ? clamp((c.bep / maxScale) * 100, 0, 100) : 100;
+  const profitable = c.net >= 0;
+
+  // mutators
+  const upLine = (id, k, v) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, [k]: v } : l)));
+  const addLine = () => setLines((ls) => [...ls, { id: nextId(), name: "", rev: "", type: "markup", val: "" }]);
+  const rmLine = (id) => setLines((ls) => ls.filter((l) => l.id !== id));
+  const upEx = (id, k, v) => setExtras((es) => es.map((e) => (e.id === id ? { ...e, [k]: v } : e)));
+  const addEx = () => setExtras((es) => [...es, { id: nextId(), name: "", amt: "" }]);
+  const rmEx = (id) => setExtras((es) => es.filter((e) => e.id !== id));
+  const reset = () => {
+    setFixed("96000");
+    setLines(withIds(SEED_LINES));
+    setExtras(withIds(SEED_EXTRAS));
+    setTarget("");
+  };
+
+  return (
+    <div className="cpm-root">
+      <style>{CSS}</style>
+
+      <header className="cpm-head">
+        <div>
+          <p className="cpm-eyebrow">Monthly position</p>
+          <h1 className="cpm-title">Cost, Profit &amp; Margin</h1>
+        </div>
+        <button className="cpm-reset" onClick={reset}>Reset to example</button>
+      </header>
+
+      <div className="cpm-grid">
+        {/* ---------------- INSTRUMENT PANEL ---------------- */}
+        <aside className="cpm-panel">
+          <div className="cpm-net">
+            <span className="cpm-net-label">{profitable ? "Net profit" : "Net loss"} this month</span>
+            <span className={"cpm-net-val " + (profitable ? "pos" : "neg")}>{fmt(c.net)}</span>
+          </div>
+
+          {/* gauge */}
+          <div className="cpm-gauge-wrap">
+            {isFinite(c.bep) ? (
+              <>
+                <div className="cpm-gauge">
+                  <div className="cpm-zone loss" style={{ width: posBep + "%" }} />
+                  <div className="cpm-zone profit" style={{ left: posBep + "%", width: 100 - posBep + "%" }} />
+                  <div className="cpm-bep" style={{ left: posBep + "%" }} />
+                  <div className="cpm-marker" style={{ left: posRev + "%" }}>
+                    <span className="cpm-marker-dot" />
+                  </div>
+                </div>
+                <div className="cpm-gauge-labels">
+                  <span style={{ left: posBep + "%" }} className="cpm-lab bep-lab">
+                    Break-even<br /><b>{fmt(c.bep)}</b>
+                  </span>
+                  <span style={{ left: posRev + "%" }} className="cpm-lab rev-lab">
+                    Revenue<br /><b>{fmt(c.totalRev)}</b>
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="cpm-empty">Add at least one line with a positive margin to see your break-even point.</div>
+            )}
+          </div>
+
+          {/* key stats */}
+          <div className="cpm-stats">
+            <Stat label="Break-even revenue" value={fmt(c.bep)} />
+            <Stat label="Blended margin" value={pct(c.blended)} />
+            <Stat
+              label="Margin of safety"
+              value={isFinite(c.bep) ? fmt(c.safetyRM) : "—"}
+              sub={isFinite(c.safetyPct) ? pct(c.safetyPct) + " of revenue" : null}
+              tone={c.safetyRM >= 0 ? "pos" : "neg"}
+            />
+          </div>
+
+          <div className="cpm-breakdown">
+            <Row label="Revenue" value={fmt(c.totalRev)} />
+            <Row label="Gross profit" value={fmt(c.totalGP)} />
+            <Row label="Fixed costs" value={"−" + fmt(c.fixedC).replace("RM", "RM")} muted />
+            <Row label="Variable costs" value={"−" + fmt(c.varC).replace("RM", "RM")} muted />
+            <Row label="Net" value={fmt(c.net)} strong tone={profitable ? "pos" : "neg"} />
+          </div>
+
+          {/* planner */}
+          <div className="cpm-planner">
+            <label className="cpm-planner-q">To take home a net of
+              <span className="cpm-inline-input">
+                <span>RM</span>
+                <input inputMode="decimal" placeholder="0" value={target}
+                  onChange={(e) => setTarget(e.target.value)} aria-label="target net profit" />
+              </span>
+            </label>
+            <p className="cpm-planner-a">
+              you'd need <b>{num(target) > 0 ? fmt(c.reqRev) : "—"}</b> in revenue at this mix.
+            </p>
+          </div>
+        </aside>
+
+        {/* ---------------- CONTROLS ---------------- */}
+        <main className="cpm-controls">
+          {/* fixed cost */}
+          <section className="cpm-card">
+            <div className="cpm-card-head">
+              <h2>Fixed running cost</h2>
+              <p>Everything that doesn't move month to month — salaries, rent, utilities.</p>
+            </div>
+            <div className="cpm-fixed">
+              <span className="cpm-prefix">RM</span>
+              <input className="cpm-big-input" inputMode="decimal" value={fixed}
+                onChange={(e) => setFixed(e.target.value)} aria-label="fixed monthly running cost" />
+              <span className="cpm-suffix">/ month</span>
+            </div>
+          </section>
+
+          {/* revenue lines */}
+          <section className="cpm-card">
+            <div className="cpm-card-head">
+              <h2>Products &amp; services</h2>
+              <p>Enter expected revenue per line. Toggle <b>markup</b> or <b>margin</b> — the effective margin is shown on the right.</p>
+            </div>
+
+            <div className="cpm-lines">
+              <div className="cpm-line cpm-line-head">
+                <span>Line</span>
+                <span>Revenue</span>
+                <span>Markup / Margin</span>
+                <span className="ralign">Gross profit</span>
+                <span />
+              </div>
+              {lines.map((l, i) => (
+                <div className="cpm-line" key={l.id}>
+                  <input className="cpm-in name" placeholder="Name" value={l.name}
+                    onChange={(e) => upLine(l.id, "name", e.target.value)} aria-label="line name" />
+                  <span className="cpm-field">
+                    <span className="cpm-mini-prefix">RM</span>
+                    <input className="cpm-in money" inputMode="decimal" placeholder="0" value={l.rev}
+                      onChange={(e) => upLine(l.id, "rev", e.target.value)} aria-label="line revenue" />
+                  </span>
+                  <span className="cpm-mm">
+                    <span className="cpm-toggle" role="group" aria-label="markup or margin">
+                      <button className={l.type === "markup" ? "on" : ""}
+                        onClick={() => upLine(l.id, "type", "markup")}>Markup</button>
+                      <button className={l.type === "margin" ? "on" : ""}
+                        onClick={() => upLine(l.id, "type", "margin")}>Margin</button>
+                    </span>
+                    <span className="cpm-field pctfield">
+                      <input className="cpm-in pct" inputMode="decimal" placeholder="0" value={l.val}
+                        onChange={(e) => upLine(l.id, "val", e.target.value)} aria-label="markup or margin percent" />
+                      <span className="cpm-mini-suffix">%</span>
+                    </span>
+                  </span>
+                  <span className="cpm-gp ralign">
+                    {fmt(c.perLine[i]?.gp ?? 0)}
+                    <em>{pct(c.perLine[i]?.m ?? 0)} margin</em>
+                  </span>
+                  <button className="cpm-x" onClick={() => rmLine(l.id)} aria-label="remove line">×</button>
+                </div>
+              ))}
+            </div>
+            <button className="cpm-add" onClick={addLine}>+ Add line</button>
+          </section>
+
+          {/* variable costs */}
+          <section className="cpm-card">
+            <div className="cpm-card-head">
+              <h2>Extra costs this month</h2>
+              <p>One-offs on top of your fixed base — temp staff, a marketing push, an event setup.</p>
+            </div>
+            <div className="cpm-extras">
+              {extras.map((e) => (
+                <div className="cpm-extra" key={e.id}>
+                  <input className="cpm-in name" placeholder="What for?" value={e.name}
+                    onChange={(ev) => upEx(e.id, "name", ev.target.value)} aria-label="extra cost name" />
+                  <span className="cpm-field">
+                    <span className="cpm-mini-prefix">RM</span>
+                    <input className="cpm-in money" inputMode="decimal" placeholder="0" value={e.amt}
+                      onChange={(ev) => upEx(e.id, "amt", ev.target.value)} aria-label="extra cost amount" />
+                  </span>
+                  <button className="cpm-x" onClick={() => rmEx(e.id)} aria-label="remove cost">×</button>
+                </div>
+              ))}
+            </div>
+            <button className="cpm-add" onClick={addEx}>+ Add cost</button>
+          </section>
+
+          <p className="cpm-foot">
+            Break-even assumes your current product mix holds. Change the mix and the blended margin — and your break-even — move with it.
+          </p>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, tone }) {
+  return (
+    <div className="cpm-stat">
+      <span className="cpm-stat-label">{label}</span>
+      <span className={"cpm-stat-val " + (tone || "")}>{value}</span>
+      {sub && <span className="cpm-stat-sub">{sub}</span>}
+    </div>
+  );
+}
+function Row({ label, value, muted, strong, tone }) {
+  return (
+    <div className={"cpm-row" + (strong ? " strong" : "")}>
+      <span>{label}</span>
+      <span className={"cpm-row-v " + (muted ? "muted " : "") + (tone || "")}>{value}</span>
+    </div>
+  );
+}
+
+const CSS = `
+.cpm-root{
+  --paper:#f0ece3; --ink:#16241d; --ink-soft:#5b6b62; --line:#dcd6c8;
+  --teal:#1a7a5e; --teal-deep:#0e3b2c; --teal-deeper:#0a2c20;
+  --on-dark:#eef0e8; --soft-dark:#8fae9f; --pos:#46c08a; --neg:#e08161;
+  --loss-z:rgba(224,129,97,.16); --profit-z:rgba(70,192,138,.14);
+  --mono:"SF Mono",ui-monospace,"Roboto Mono",Menlo,Consolas,monospace;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-family:var(--sans); color:var(--ink); background:var(--paper);
+  padding:28px 22px 40px; max-width:1180px; margin:0 auto; line-height:1.45;
+  -webkit-font-smoothing:antialiased; font-feature-settings:"tnum" 1,"ss01" 1;
+}
+.cpm-root *{box-sizing:border-box;}
+.cpm-root input{font-family:var(--mono);}
+
+.cpm-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:22px; border-bottom:1px solid var(--line); padding-bottom:16px;}
+.cpm-eyebrow{font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--teal); margin:0 0 4px; font-weight:600;}
+.cpm-title{font-size:30px; line-height:1; margin:0; font-weight:700; letter-spacing:-.02em;}
+.cpm-reset{font-family:var(--sans); font-size:12.5px; color:var(--ink-soft); background:none; border:1px solid var(--line); padding:7px 12px; border-radius:7px; cursor:pointer;}
+.cpm-reset:hover{border-color:var(--teal); color:var(--teal);}
+
+.cpm-grid{display:grid; grid-template-columns:1fr; gap:20px;}
+@media(min-width:920px){
+  .cpm-grid{grid-template-columns:minmax(0,1fr) 380px;}
+  .cpm-controls{grid-column:1; grid-row:1;}
+  .cpm-panel{grid-column:2; grid-row:1; position:sticky; top:18px; align-self:start;}
+}
+
+/* ---------- panel ---------- */
+.cpm-panel{background:linear-gradient(160deg,var(--teal-deep),var(--teal-deeper)); color:var(--on-dark); border-radius:16px; padding:22px 20px; box-shadow:0 18px 40px -22px rgba(10,44,32,.7);}
+.cpm-net{display:flex; flex-direction:column; gap:2px; margin-bottom:20px;}
+.cpm-net-label{font-size:12px; letter-spacing:.04em; color:var(--soft-dark);}
+.cpm-net-val{font-family:var(--mono); font-size:38px; font-weight:600; letter-spacing:-.01em;}
+.cpm-net-val.pos{color:var(--pos);} .cpm-net-val.neg{color:var(--neg);}
+
+.cpm-gauge-wrap{margin-bottom:34px;}
+.cpm-gauge{position:relative; height:46px; border-radius:8px; background:rgba(255,255,255,.05); overflow:hidden; border:1px solid rgba(255,255,255,.08);}
+.cpm-zone{position:absolute; top:0; bottom:0;}
+.cpm-zone.loss{left:0; background:var(--loss-z);}
+.cpm-zone.profit{background:var(--profit-z);}
+.cpm-bep{position:absolute; top:-3px; bottom:-3px; width:0; border-left:2px dashed rgba(238,240,232,.6); transform:translateX(-1px); transition:left .35s cubic-bezier(.4,0,.2,1);}
+.cpm-marker{position:absolute; top:-7px; bottom:-7px; width:3px; background:var(--on-dark); border-radius:2px; transform:translateX(-1.5px); box-shadow:0 0 0 4px rgba(238,240,232,.12); transition:left .35s cubic-bezier(.4,0,.2,1);}
+.cpm-marker-dot{position:absolute; top:-6px; left:50%; width:9px; height:9px; border-radius:50%; background:var(--on-dark); transform:translateX(-50%);}
+.cpm-gauge-labels{position:relative; height:34px; margin-top:9px;}
+.cpm-lab{position:absolute; top:0; transform:translateX(-50%); font-size:10.5px; line-height:1.25; text-align:center; white-space:nowrap; color:var(--soft-dark);}
+.cpm-lab b{font-family:var(--mono); font-size:11.5px; color:var(--on-dark); font-weight:600;}
+.cpm-lab.bep-lab{color:var(--soft-dark);}
+.cpm-lab.rev-lab{color:var(--on-dark);}
+.cpm-empty{font-size:13px; color:var(--soft-dark); padding:14px 4px; text-align:center;}
+
+.cpm-stats{display:grid; grid-template-columns:1fr 1fr; gap:1px; background:rgba(255,255,255,.08); border-radius:10px; overflow:hidden; margin-bottom:18px;}
+.cpm-stat{background:linear-gradient(160deg,var(--teal-deep),var(--teal-deeper)); padding:12px 13px; display:flex; flex-direction:column; gap:3px;}
+.cpm-stat:first-child{grid-column:1 / -1;}
+.cpm-stat-label{font-size:11px; color:var(--soft-dark); letter-spacing:.02em;}
+.cpm-stat-val{font-family:var(--mono); font-size:19px; font-weight:600;}
+.cpm-stat-val.pos{color:var(--pos);} .cpm-stat-val.neg{color:var(--neg);}
+.cpm-stat-sub{font-size:11px; color:var(--soft-dark); font-family:var(--mono);}
+
+.cpm-breakdown{border-top:1px solid rgba(255,255,255,.1); padding-top:12px;}
+.cpm-row{display:flex; justify-content:space-between; align-items:baseline; padding:4px 0; font-size:13px; color:var(--soft-dark);}
+.cpm-row-v{font-family:var(--mono); color:var(--on-dark);}
+.cpm-row-v.muted{color:var(--soft-dark);}
+.cpm-row.strong{margin-top:5px; padding-top:9px; border-top:1px solid rgba(255,255,255,.1); font-size:14px;}
+.cpm-row.strong span:first-child{color:var(--on-dark); font-weight:600;}
+.cpm-row-v.pos{color:var(--pos);} .cpm-row-v.neg{color:var(--neg);}
+
+.cpm-planner{margin-top:16px; padding:13px 14px; background:rgba(217,164,65,.1); border:1px solid rgba(217,164,65,.3); border-radius:10px;}
+.cpm-planner-q{font-size:12.5px; color:var(--on-dark); display:inline-flex; align-items:center; flex-wrap:wrap; gap:6px;}
+.cpm-inline-input{display:inline-flex; align-items:center; gap:3px; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.15); border-radius:6px; padding:2px 7px;}
+.cpm-inline-input span{font-size:11px; color:var(--soft-dark);}
+.cpm-inline-input input{width:64px; background:none; border:none; color:var(--on-dark); font-size:13px; outline:none;}
+.cpm-planner-a{margin:8px 0 0; font-size:12.5px; color:var(--soft-dark);}
+.cpm-planner-a b{font-family:var(--mono); color:#f0cd8a; font-size:14px;}
+
+/* ---------- controls ---------- */
+.cpm-controls{display:flex; flex-direction:column; gap:16px;}
+.cpm-card{background:#fff; border:1px solid var(--line); border-radius:14px; padding:18px 18px 16px;}
+.cpm-card-head h2{margin:0 0 3px; font-size:16px; font-weight:650; letter-spacing:-.01em;}
+.cpm-card-head p{margin:0 0 14px; font-size:12.5px; color:var(--ink-soft);}
+.cpm-card-head b{color:var(--teal); font-weight:600;}
+
+.cpm-fixed{display:flex; align-items:center; gap:8px; background:var(--paper); border:1px solid var(--line); border-radius:9px; padding:8px 12px;}
+.cpm-prefix{font-size:13px; color:var(--ink-soft); font-family:var(--mono);}
+.cpm-big-input{flex:1; border:none; background:none; font-size:24px; font-weight:600; color:var(--ink); outline:none; min-width:0;}
+.cpm-suffix{font-size:12px; color:var(--ink-soft);}
+
+.cpm-in{border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:7px 9px; font-size:13px; color:var(--ink); outline:none; min-width:0; width:100%;}
+.cpm-in:focus,.cpm-big-input:focus,.cpm-inline-input input:focus-visible{box-shadow:0 0 0 2px rgba(26,122,94,.35); border-color:var(--teal);}
+.cpm-in::placeholder{color:#b3ad9d;}
+
+.cpm-lines{display:flex; flex-direction:column; gap:8px;}
+.cpm-line{display:grid; grid-template-columns:1.5fr 1fr 1.5fr 1.1fr 26px; gap:8px; align-items:center;}
+.cpm-line-head{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); padding:0 2px;}
+.cpm-line-head .ralign{text-align:right;}
+.cpm-field{display:flex; align-items:center; gap:5px; border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:0 9px;}
+.cpm-field:focus-within{box-shadow:0 0 0 2px rgba(26,122,94,.35); border-color:var(--teal);}
+.cpm-field .cpm-in{border:none; background:none; padding:7px 0; box-shadow:none;}
+.cpm-mini-prefix,.cpm-mini-suffix{font-size:12px; color:var(--ink-soft); font-family:var(--mono);}
+.cpm-mm{display:flex; gap:6px; align-items:center;}
+.cpm-toggle{display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; flex-shrink:0;}
+.cpm-toggle button{font-family:var(--sans); font-size:11px; padding:6px 8px; background:#fff; border:none; color:var(--ink-soft); cursor:pointer;}
+.cpm-toggle button.on{background:var(--teal); color:#fff; font-weight:600;}
+.pctfield{flex:1; min-width:54px;}
+.cpm-gp{font-family:var(--mono); font-size:13px; font-weight:600; display:flex; flex-direction:column; align-items:flex-end; line-height:1.2;}
+.cpm-gp em{font-style:normal; font-size:10.5px; color:var(--ink-soft); font-weight:400;}
+.cpm-x{background:none; border:none; color:#c0b9a8; font-size:18px; cursor:pointer; line-height:1; padding:4px; border-radius:5px;}
+.cpm-x:hover{color:var(--neg); background:var(--paper);}
+
+.cpm-extras{display:flex; flex-direction:column; gap:8px;}
+.cpm-extra{display:grid; grid-template-columns:1fr 150px 26px; gap:8px; align-items:center;}
+
+.cpm-add{margin-top:12px; font-family:var(--sans); font-size:13px; color:var(--teal); background:none; border:1px dashed var(--teal); border-radius:8px; padding:8px 12px; cursor:pointer; align-self:flex-start; font-weight:500;}
+.cpm-add:hover{background:rgba(26,122,94,.06);}
+
+.cpm-foot{font-size:12px; color:var(--ink-soft); margin:2px 2px 0; line-height:1.5;}
+
+@media(max-width:560px){
+  .cpm-root{padding:20px 14px 32px;}
+  .cpm-title{font-size:24px;}
+  .cpm-net-val{font-size:32px;}
+  .cpm-line{grid-template-columns:1fr 1fr; grid-template-areas:"name name" "rev gp" "mm mm" "x x"; row-gap:6px;}
+  .cpm-line-head{display:none;}
+  .cpm-line .name{grid-area:name;}
+  .cpm-line .cpm-field:nth-of-type(1){grid-area:rev;}
+  .cpm-line .cpm-gp{grid-area:gp;}
+  .cpm-line .cpm-mm{grid-area:mm;}
+  .cpm-line .cpm-x{grid-area:x; justify-self:end;}
+  .cpm-extra{grid-template-columns:1fr 120px 26px;}
+}
+@media(prefers-reduced-motion:reduce){ .cpm-bep,.cpm-marker{transition:none;} }
+`;
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Calculator />);
+  </script>
+</body>
+</html>
